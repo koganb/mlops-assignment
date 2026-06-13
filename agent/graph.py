@@ -16,13 +16,15 @@ conditional router following the same shape.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
+from pydantic import BaseModel, Field
 
 from agent import prompts
 from agent.execution import ExecutionResult, execute_sql
@@ -69,6 +71,15 @@ def llm() -> ChatOpenAI:
 def _attach_schema(state: AgentState) -> dict:
     """Provided. Render the DB schema once at the start of the run."""
     return {"schema": render_schema(state.db_id)}
+
+
+class Verification(BaseModel):
+    ok: bool = Field(description="True if the SQL correctly answers the question, False otherwise")
+    issue: str = Field(description="Description of the issue if ok is False")
+
+
+class Revision(BaseModel):
+    sql: str = Field(description="The revised SQL query")
 
 
 def _extract_sql(text: str) -> str:
@@ -124,7 +135,20 @@ def verify_node(state: AgentState) -> dict:
     What counts as "not plausible" is yours to define - see the Phase 3 targets
     in the README.
     """
-    raise NotImplementedError("Implement in Phase 3")
+    execution_render = state.execution.render() if state.execution else "No execution result."
+    structured_llm = llm().with_structured_output(Verification)
+    verification = structured_llm.invoke([
+        ("system", prompts.VERIFY_SYSTEM),
+        ("user", prompts.VERIFY_USER.format(
+            question=state.question,
+            sql=state.sql,
+            execution_render=execution_render,
+        )),
+    ])
+    return {
+        "verify_ok": verification.ok,
+        "verify_issue": verification.issue,
+    }
 
 
 def revise_node(state: AgentState) -> dict:
@@ -137,16 +161,34 @@ def revise_node(state: AgentState) -> dict:
 
     Return: {"sql": <str>, "iteration": state.iteration + 1, ...}.
     """
-    raise NotImplementedError("Implement in Phase 3")
+    execution_render = state.execution.render() if state.execution else "No execution result."
+    structured_llm = llm().with_structured_output(Revision)
+    revision = structured_llm.invoke([
+        ("system", prompts.REVISE_SYSTEM),
+        ("user", prompts.REVISE_USER.format(
+            schema=state.schema,
+            question=state.question,
+            sql=state.sql,
+            execution_render=execution_render,
+            issue=state.verify_issue,
+        )),
+    ])
+    return {
+        "sql": revision.sql,
+        "iteration": state.iteration + 1,
+        "history": state.history + [{"node": "revise", "sql": revision.sql, "issue": state.verify_issue}],
+    }
 
 
-def route_after_verify(state: AgentState) -> str:
+def route_after_verify(state: AgentState) -> Literal["revise", "end"]:
     """Conditional router: return "revise" to loop, "end" to terminate.
 
     Two reasons to end: the verifier was happy (state.verify_ok), or you've hit
     the iteration cap (state.iteration >= MAX_ITERATIONS). Otherwise, revise.
     """
-    raise NotImplementedError("Implement in Phase 3")
+    if state.verify_ok or state.iteration >= MAX_ITERATIONS:
+        return "end"
+    return "revise"
 
 
 # ---- Graph wiring -----------------------------------------------------
