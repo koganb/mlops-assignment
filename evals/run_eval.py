@@ -58,7 +58,48 @@ def matches(gold_rows: list[tuple] | None, pred_rows: list[tuple] | None) -> boo
 
 def eval_one(question: dict, agent_url: str) -> dict:
     """Score one question. Return a dict capturing per-iteration correctness."""
-    raise NotImplementedError("Phase 5")
+    db_id = question["db_id"]
+    gold_sql = question["gold_sql"]
+    query = question["question"]
+
+    # 1. Get gold rows
+    ok, gold_rows, err = run_sql(db_id, gold_sql)
+    if not ok:
+        raise RuntimeError(f"Gold SQL failed: {err}")
+
+    # 2. Call agent
+    payload = {"question": query, "db": db_id}
+    resp = httpx.post(agent_url, json=payload, timeout=120.0)
+    resp.raise_for_status()
+    agent_resp = resp.json()
+
+    # 3. Score iterations
+    # The history contains nodes like {"node": "generate_sql", "sql": "..."} or {"node": "revise", "sql": "...", "issue": "..."}
+    # We want to know if the SQL *at that point* was correct.
+    history = agent_resp.get("history", [])
+    iteration_results = []
+    
+    # Each entry in history that has 'sql' represents an attempt
+    sql_attempts = [v for h in history for k, v in h.items() if k == "sql"]
+    
+    for i, sql_attempt in enumerate(sql_attempts):
+        ok, pred_rows, err = run_sql(db_id, sql_attempt)
+        pass_iter = matches(gold_rows, pred_rows) if ok else False
+        iteration_results.append({
+            "iteration": i,
+            "sql": sql_attempt,
+            "pass": pass_iter,
+            "error": err if not ok else None
+        })
+
+    return {
+        "question": query,
+        "db_id": db_id,
+        "gold_sql": gold_sql,
+        "agent_sql": agent_resp.get("sql"),
+        "iterations": iteration_results,
+        "final_ok": agent_resp.get("ok", False),
+    }
 
 
 def summarize(results: list[dict]) -> dict:
@@ -70,7 +111,39 @@ def summarize(results: list[dict]) -> dict:
     The agent stopped emitting; whatever it had at termination is what
     would have been served had we polled at iteration k.
     """
-    raise NotImplementedError("Phase 5")
+    if not results:
+        return {}
+
+    # Find the maximum number of iterations any question went through
+    max_iters = 0
+    for r in results:
+        max_iters = max(max_iters, len(r["iterations"]))
+
+    if max_iters == 0:
+        return {"total_questions": len(results), "pass_rate_at_iteration": {}}
+
+    pass_counts = [0] * max_iters
+    
+    for r in results:
+        iters = r["iterations"]
+        last_pass = False
+        for k in range(max_iters):
+            if k < len(iters):
+                last_pass = iters[k]["pass"]
+            # if k >= len(iters), we use last_pass (carry-forward)
+            if last_pass:
+                pass_counts[k] += 1
+
+    total = len(results)
+    pass_rate_at_iteration = {
+        f"iter_{k}": pass_counts[k] / total for k in range(max_iters)
+    }
+
+    return {
+        "total_questions": total,
+        "final_pass_rate": pass_counts[-1] / total if max_iters > 0 else 0,
+        "pass_rate_at_iteration": pass_rate_at_iteration,
+    }
 
 
 # ---------- Main (provided) --------------------------------------------
@@ -87,7 +160,7 @@ def main() -> None:
 
     results: list[dict] = []
     t0 = time.monotonic()
-    for i, q in enumerate(questions, 1):
+    for i, q in enumerate(questions[:10], 1):
         print(f"[{i}/{len(questions)}] {q['db_id']}: {q['question'][:60]}...", flush=True)
         results.append(eval_one(q, args.agent_url))
     elapsed = time.monotonic() - t0
@@ -102,7 +175,6 @@ def main() -> None:
     args.out.write_text(json.dumps(out, indent=2))
     print(f"Wrote {args.out}")
     print(json.dumps(summary, indent=2))
-
 
 if __name__ == "__main__":
     main()
