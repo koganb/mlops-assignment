@@ -192,13 +192,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "vllm:gpu_cache_usage_percent",
-          "legendFormat": "GPU cache %"
-        },
-        {
-          "refId": "B",
-          "expr": "vllm:cpu_cache_usage_percent",
-          "legendFormat": "CPU cache %"
+          "expr": "vllm:kv_cache_usage_perc",
+          "legendFormat": "KV Cache usage %"
         }
       ],
       "fieldConfig": {
