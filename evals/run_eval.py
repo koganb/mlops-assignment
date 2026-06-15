@@ -160,7 +160,7 @@ def main() -> None:
 
     results: list[dict] = []
     t0 = time.monotonic()
-    for i, q in enumerate(questions[:10], 1):
+    for i, q in enumerate(questions, 1):
         print(f"[{i}/{len(questions)}] {q['db_id']}: {q['question'][:60]}...", flush=True)
         results.append(eval_one(q, args.agent_url))
     elapsed = time.monotonic() - t0
