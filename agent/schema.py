@@ -7,9 +7,11 @@ the PRAGMA introspection here or the SQL the model emits later.
 """
 from __future__ import annotations
 
+import json
 import sqlite3
 from functools import lru_cache
 from pathlib import Path
+import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 DB_DIR = ROOT / "data" / "bird"
@@ -58,6 +60,17 @@ def render_schema(db_id: str) -> str:
             parts.append(",\n".join(col_lines))
             parts.append(");")
     return "\n".join(parts)
+
+
+@lru_cache(maxsize=32)
+def attach_schema_description(db_id: str) -> str:
+    db_descriptions = {}
+    for csv_file in DB_DIR.glob(f"dev_*/dev_databases/{db_id}/database_description/*.csv"):
+        table_name = csv_file.stem
+        df = pd.read_csv(csv_file, encoding='utf-8', encoding_errors='ignore')
+        db_descriptions[table_name] = dict(zip(df['original_column_name'].str.strip(),
+                                               df['column_description'].str.strip()))
+    return json.dumps(db_descriptions, indent=2)
 
 
 def available_dbs() -> list[str]:

@@ -11,12 +11,17 @@ Filling these in is part of Phase 3.
 GENERATE_SQL_SYSTEM = """You are an expert SQL assistant. 
 Your task is to convert English questions into SQL queries for a SQLite database.
 Use the provided schema to understand the tables and columns.
+Use the provided schema description to understand the meaning of table columns.
+Always use range conditions for questions about concrete date/time.
 Return ONLY the SQL query, wrapped in ```sql ... ``` markdown fences.
 """
 
-# Available placeholders: {schema}, {question}
+# Available placeholders: {schema}, {schema_description}, {question}
 GENERATE_SQL_USER = """Schema:
 {schema}
+
+schema description:
+{schema_description}
 
 Question: {question}
 

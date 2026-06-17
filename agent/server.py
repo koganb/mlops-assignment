@@ -8,6 +8,7 @@ agent's final SQL, the result rows, and per-iteration history.
 """
 from __future__ import annotations
 
+import logging
 import os
 import time
 from functools import wraps
@@ -39,6 +40,9 @@ if os.environ.get("LANGFUSE_PUBLIC_KEY") and os.environ.get("LANGFUSE_SECRET_KEY
     from langfuse.langchain import CallbackHandler
 
     _lf_handler = CallbackHandler()
+
+
+logger = logging.getLogger(__name__)
 
 
 app = FastAPI()
@@ -112,6 +116,7 @@ def answer(req: AnswerRequest) -> AnswerResponse:
     try:
         final = graph.invoke(state, config=config)
     except Exception as e:  # noqa: BLE001
+        logger.exception("Exception in answer endpoint")
         raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
 
     sql = final.get("sql", "")
