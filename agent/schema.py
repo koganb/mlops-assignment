@@ -23,7 +23,7 @@ def db_path(db_id: str) -> Path:
 
 def _q(ident: str) -> str:
     """Double-quote a SQL identifier, escaping any embedded quotes."""
-    return '"' + ident.replace('"', '""') + '"'
+    return '"' + ident.replace('"', '""') + '"' if ident else ""
 
 
 @lru_cache(maxsize=32)
