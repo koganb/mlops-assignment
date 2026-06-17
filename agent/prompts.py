@@ -53,6 +53,9 @@ Your task is to revise the SQL query based on the issue reported.
 REVISE_USER = """Schema:
 {schema}
 
+schema description:
+{schema_description}
+
 Question: {question}
 
 Previous SQL: {sql}
