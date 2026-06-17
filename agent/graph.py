@@ -172,6 +172,7 @@ def revise_node(state: AgentState) -> dict:
         ("system", prompts.REVISE_SYSTEM),
         ("user", prompts.REVISE_USER.format(
             schema=state.schema,
+            schema_description=state.schema_description,
             question=state.question,
             sql=state.sql,
             execution_render=execution_render,
