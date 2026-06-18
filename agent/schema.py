@@ -65,34 +65,17 @@ def render_schema(db_id: str) -> str:
             parts.append(");")
     return "\n".join(parts)
 
-class ColumnDescription(BaseModel):
-    name: str
-    column_description: Any | None = None
-    data_format:  Any | None = None
-    value_description: Any | None = None
-
-    @field_validator("name", "column_description", "data_format", "value_description", mode="before")
-    @classmethod
-    def trim_strings(cls, value):
-        return value.strip() if isinstance(value, str) else None
-
 
 @lru_cache(maxsize=32)
 def attach_schema_description(db_id: str) -> str:
-    db_descriptions = {}
+    df_list = []
     for csv_file in DB_DIR.glob(f"dev_*/dev_databases/{db_id}/database_description/*.csv"):
         table_name = csv_file.stem
-        df = pd.read_csv(csv_file, encoding='utf-8', encoding_errors='ignore')
-        db_descriptions[table_name] = [
-            ColumnDescription(
-                name=row.original_column_name,
-                column_description=row.column_description,
-                data_format=row.data_format,
-                value_description=row.value_description,
-            ).model_dump()
-            for row in df.itertuples(index=False)
-        ]
-    return json.dumps(db_descriptions, indent=2)
+        df_list.append(pd.read_csv(csv_file, encoding='utf-8', encoding_errors='ignore').rename(
+            columns={'original_column_name': 'column_name'}).assign(table_name=table_name)[
+            ['table_name', 'column_name', 'column_description', 'data_format', 'value_description']]
+        )
+    return pd.concat(df_list, axis=0).fillna("").to_markdown(index=False)
 
 
 def available_dbs() -> list[str]:
