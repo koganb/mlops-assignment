@@ -29,6 +29,11 @@
           "refId": "A",
           "expr": "rate(agent_runs_completed_total[1m])",
           "legendFormat": "completed"
+        },
+        {
+          "refId": "B",
+          "expr": "rate(agent_runs_failed_total[1m])",
+          "legendFormat": "failed"
         }
       ],
       "fieldConfig": {

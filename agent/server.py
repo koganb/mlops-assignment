@@ -22,7 +22,6 @@ from prometheus_client import (
     CollectorRegistry,
     Counter,
     Histogram,
-    disable_created_metrics,
     generate_latest,
 )
 from pydantic import BaseModel
@@ -47,12 +46,18 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-disable_created_metrics()
+# disable_created_metrics()
 metrics_registry = CollectorRegistry()
 
 agent_runs_completed = Counter(
-    "agent_runs_completed_total",
+    "agent_runs_completed",
     "Completed agent executions",
+    registry=metrics_registry,
+)
+
+agent_runs_failed = Counter(
+    "agent_runs_failed",
+    "Failed agent executions",
     registry=metrics_registry,
 )
 
@@ -82,15 +87,19 @@ def track_agent_metrics(func):
     @wraps(func)
     async def wrapper(*args, **kwargs):
         start = time.perf_counter()
-        result = func(*args, **kwargs)
-        if isawaitable(result):
-            result = await result
+        try:
+            result = func(*args, **kwargs)
+            if isawaitable(result):
+                result = await result
 
-        # Success only
-        duration = time.perf_counter() - start
-        agent_runs_completed.inc()
-        agent_run_duration.observe(duration)
-        return result
+            # Success only
+            duration = time.perf_counter() - start
+            agent_runs_completed.inc()
+            agent_run_duration.observe(duration)
+            return result
+        except Exception:
+            agent_runs_failed.inc()
+            raise
 
     return wrapper
 
@@ -107,14 +116,14 @@ def metrics():
 
 @app.post("/answer", response_model=AnswerResponse)
 @track_agent_metrics
-def answer(req: AnswerRequest) -> AnswerResponse:
+async def answer(req: AnswerRequest) -> AnswerResponse:
     state = AgentState(question=req.question, db_id=req.db)
     config: dict[str, Any] = {
         "callbacks": [_lf_handler] if _lf_handler is not None else [],
         "metadata": req.tags,
     }
     try:
-        final = graph.invoke(state, config=config)
+        final = await graph.ainvoke(state, config=config)
     except Exception as e:  # noqa: BLE001
         logger.exception("Exception in answer endpoint")
         raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
