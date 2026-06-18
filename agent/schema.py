@@ -9,9 +9,13 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
+
 import pandas as pd
+from pydantic import BaseModel, field_validator
 
 ROOT = Path(__file__).resolve().parent.parent
 DB_DIR = ROOT / "data" / "bird"
@@ -61,6 +65,17 @@ def render_schema(db_id: str) -> str:
             parts.append(");")
     return "\n".join(parts)
 
+class ColumnDescription(BaseModel):
+    name: str
+    column_description: Any | None = None
+    data_format:  Any | None = None
+    value_description: Any | None = None
+
+    @field_validator("name", "column_description", "data_format", "value_description", mode="before")
+    @classmethod
+    def trim_strings(cls, value):
+        return value.strip() if isinstance(value, str) else None
+
 
 @lru_cache(maxsize=32)
 def attach_schema_description(db_id: str) -> str:
@@ -68,8 +83,15 @@ def attach_schema_description(db_id: str) -> str:
     for csv_file in DB_DIR.glob(f"dev_*/dev_databases/{db_id}/database_description/*.csv"):
         table_name = csv_file.stem
         df = pd.read_csv(csv_file, encoding='utf-8', encoding_errors='ignore')
-        db_descriptions[table_name] = dict(zip(df['original_column_name'].str.strip(),
-                                               df['column_description'].str.strip()))
+        db_descriptions[table_name] = [
+            ColumnDescription(
+                name=row.original_column_name,
+                column_description=row.column_description,
+                data_format=row.data_format,
+                value_description=row.value_description,
+            ).model_dump()
+            for row in df.itertuples(index=False)
+        ]
     return json.dumps(db_descriptions, indent=2)
 
 
