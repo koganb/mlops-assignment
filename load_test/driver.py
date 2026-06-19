@@ -38,7 +38,7 @@ async def fire_one(
     status = "ok"
     err: str | None = None
     try:
-        async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=120)) as resp:
+        async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=6000)) as resp:
             await resp.read()
             if resp.status != 200:
                 status = "http_error"
