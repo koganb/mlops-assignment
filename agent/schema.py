@@ -7,15 +7,11 @@ the PRAGMA introspection here or the SQL the model emits later.
 """
 from __future__ import annotations
 
-import json
 import sqlite3
-from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
 
 import pandas as pd
-from pydantic import BaseModel, field_validator
 
 ROOT = Path(__file__).resolve().parent.parent
 DB_DIR = ROOT / "data" / "bird"
@@ -31,51 +27,48 @@ def _q(ident: str) -> str:
 
 
 @lru_cache(maxsize=32)
-def render_schema(db_id: str) -> str:
-    path = db_path(db_id)
-    if not path.exists():
-        raise FileNotFoundError(f"DB {db_id} not found at {path}. Did you run scripts/load_data.py?")
-
-    parts: list[str] = [f"-- Database: {db_id}"]
-    with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as conn:
-        tables = [
-            r[0]
-            for r in conn.execute(
-                "SELECT name FROM sqlite_master "
-                "WHERE type='table' AND name NOT LIKE 'sqlite_%' "
-                "ORDER BY name"
-            )
-        ]
-        for t in tables:
-            parts.append(f"\nCREATE TABLE {_q(t)} (")
-            col_lines: list[str] = []
-            for _cid, name, ctype, notnull, _dflt, pk in conn.execute(f"PRAGMA table_info({_q(t)})"):
-                line = f"  {_q(name)} {ctype}"
-                if pk:
-                    line += " PRIMARY KEY"
-                if notnull and not pk:
-                    line += " NOT NULL"
-                col_lines.append(line)
-            for fk in conn.execute(f"PRAGMA foreign_key_list({_q(t)})"):
-                # (id, seq, ref_table, from, to, on_update, on_delete, match)
-                col_lines.append(
-                    f"  FOREIGN KEY ({_q(fk[3])}) REFERENCES {_q(fk[2])}({_q(fk[4])})"
-                )
-            parts.append(",\n".join(col_lines))
-            parts.append(");")
-    return "\n".join(parts)
-
-
-@lru_cache(maxsize=32)
 def attach_schema_description(db_id: str) -> str:
+    # Build FK map: {table -> {from_col -> "ref_table(ref_col)"}}
+    fk_map: dict[str, dict[str, str]] = {}
+    path = db_path(db_id)
+    if path.exists():
+        with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as conn:
+            tables = [
+                r[0]
+                for r in conn.execute(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                )
+            ]
+            for t in tables:
+                for fk in conn.execute(f"PRAGMA foreign_key_list({_q(t)})"):
+                    # (id, seq, ref_table, from, to, ...)
+                    fk_map.setdefault(t, {})[fk[3]] = f"{fk[2]}({fk[4]})"
+
     df_list = []
     for csv_file in DB_DIR.glob(f"dev_*/dev_databases/{db_id}/database_description/*.csv"):
         table_name = csv_file.stem
-        df_list.append(pd.read_csv(csv_file, encoding='utf-8', encoding_errors='ignore').rename(
-            columns={'original_column_name': 'column_name'}).assign(table_name=table_name)[
-            ['table_name', 'column_name', 'column_description', 'data_format', 'value_description']]
+        df = (
+            pd.read_csv(csv_file, encoding='utf-8', encoding_errors='ignore')
+            .assign(table_name=table_name)
+            [['table_name', 'original_column_name', 'column_description', 'data_format', 'value_description']]
+            .rename(columns={'original_column_name': 'column_name'})
         )
-    return pd.concat(df_list, axis=0).fillna("").to_markdown(index=False)
+        df_list.append(df)
+
+    result = pd.concat(df_list, axis=0).fillna("")
+
+    # Append FK->PK info to column_description
+    def _enrich(row: pd.Series) -> str:
+        desc = row['column_description']
+        fk_ref = fk_map.get(str(row['table_name']), {}).get(str(row['column_name']))
+        if fk_ref:
+            suffix = f"FK -> {fk_ref}"
+            desc = f"{desc}; {suffix}" if desc else suffix
+        return desc
+
+    result['column_description'] = result.apply(_enrich, axis=1)
+    return result.to_markdown(index=False)
 
 
 def available_dbs() -> list[str]:

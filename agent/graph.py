@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field
 
 from agent import prompts
 from agent.execution import ExecutionResult, execute_sql
-from agent.schema import attach_schema_description, render_schema
+from agent.schema import attach_schema_description
 
 # Total generate + revise calls before the loop is forced to stop.
 # 3-5 is a reasonable range; tune it as part of Phase 3.
@@ -47,7 +47,6 @@ class AgentState:
 
     question: str
     db_id: str
-    schema: str = ""
     schema_description: str = ""
     sql: str = ""
     execution: ExecutionResult | None = None
@@ -72,7 +71,6 @@ def llm() -> ChatOpenAI:
 def _attach_schema(state: AgentState) -> dict:
     """Provided. Render the DB schema once at the start of the run."""
     return {
-        "schema": render_schema(state.db_id),
         "schema_description": attach_schema_description(state.db_id),
     }
 
@@ -109,7 +107,6 @@ def generate_sql_node(state: AgentState) -> dict:
     response = llm().invoke([
         ("system", prompts.GENERATE_SQL_SYSTEM),
         ("user", prompts.GENERATE_SQL_USER.format(
-            schema=state.schema,
             schema_description=state.schema_description,
             question=state.question,
         )),
@@ -171,7 +168,6 @@ def revise_node(state: AgentState) -> dict:
     revision = structured_llm.invoke([
         ("system", prompts.REVISE_SYSTEM),
         ("user", prompts.REVISE_USER.format(
-            schema=state.schema,
             schema_description=state.schema_description,
             question=state.question,
             sql=state.sql,

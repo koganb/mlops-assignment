@@ -27,9 +27,6 @@ Rules:
 
 # Available placeholders: {schema}, {schema_description}, {question}
 GENERATE_SQL_USER = """Schema:
-{schema}
-
-schema description:
 {schema_description}
 
 Question: {question}
@@ -60,9 +57,6 @@ Your task is to revise the SQL query based on the issue reported.
 """
 
 REVISE_USER = """Schema:
-{schema}
-
-schema description:
 {schema_description}
 
 Question: {question}
